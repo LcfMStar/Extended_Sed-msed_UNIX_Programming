@@ -1,0 +1,532 @@
+#!/usr/bin/csh
+cat > t4
+echo \ $1:q > t5
+
+#echo "The number of argument is " $#
+
+foreach i ( "`seq $# -1 2`" )
+    cat t5 | awk '{while (k = match($0, "[^\\\\]\\$'"$i"'")){x=substr($0,1,k-1);y=substr($0,k,length($0)-k+1);sub("\\$'"$i"'", "'"$argv[$i]"'", y);$0=x y}{print}}' > t6
+    mv t6 t5
+
+    # remove arguments that have been processing into empty
+    if ( X$argv[$i] !~ "X-*" ) set argv[$i] = ""
+    # echo X$argv[$i]
+end
+
+# get rid of space;
+# \\ to \a
+# \; to \f
+#  ; to \n
+#cat t5 | sed 's/^ //;s/\\\\/\a/g;s/\\;/\f/g;s/;/\n;/g' > t6
+cat t5 | awk '{if ( k=match($0, "^ ") ) $0=substr($0,2,length($0)-1)}{gsub("\\\\\\\\", "\a", $0);gsub("\\\\;", "\f", $0);gsub(";", "\n;", $0);print}' > t6
+
+#sed -n '/^exit/{n;:a;p;n;ba}' < msed > t7
+awk '{if ( found ) print; else if ( $0 ~ /^exit/ ) {found=1; next}}' < msed > t7
+cat t6 | awk -ft7 > t8
+
+rm -f t9
+@ cnt = 0
+@ z = 0
+
+foreach x ( "`cat t8`" )
+   #Here, x is a single line from t8, so it is usually a single sed command.
+   #Now we want to make a variable y that will be the number # of any $-# that
+   #might be on this line x. (Let y be "" otherwise.):
+   # set y = `echo $x:q | sed -n 's/.*\$-\v\([0-9][0-9]*\).*/\1/p'`
+   set y = `echo $x:q | awk '{if (k=match($0, "\\$-\v[0-9]+")) {s=substr($0, k); sub("\\$-\v", "", s); sub("[^0-9].*", "", s); print s}}'`
+   #So now, what if $y==a number? Well that means that we need to work out
+   #what line number would match to $#-1? Set z to that line number:
+   if ( X$y != X ) @ z = `cat t4 | wc -l` - $y
+
+   #So now we take the single line $x and clean it up. The $-# will turn into
+   #the number $z. Also to fix: make the branches used for "f"/"F" unique, by
+   #adding a counter number to the end of whateven branch label may be in #x.
+   #(See footnote 4 of the README file, for details on handling "f"/"F".)
+   # echo $x:q | sed 's/\$-\v'$y'/'$z'/g;s/tlabel7;:label7/tlabel7'$cnt';:label7'$cnt'/' >> t9
+   echo $x:q | awk '{gsub("\\$-\v'"$y"'", "'"$z"'"); gsub("tlabel7;:label7", "tlabel7'"$cnt"';:label7'"$cnt"'"); gsub("flagL1", "flagL1"'$cnt'""); gsub("flagL2", "flagL2"'$cnt'""); print}' >> t9
+   #Increase the counter used for the branch labels on line 63, above:
+   @ cnt = $cnt + 1
+end
+
+set argv[1] = -ft9
+
+cat t4 | sed  $*:q
+
+
+exit 0
+#This section combines lines to form /.../ or \x...x -- if there are ; in it:
+{if ($0 ~ "^[;]? *\f"){
+        while ($0 !~ "^[;]? *\f.*;") {
+                x = $0
+                getline y
+                $0 = x y
+        }
+}}
+{if ($0 ~ "^[;]? *\a"){
+        while ($0 !~ "^[;]? *\a.*\\\\") {
+                x = $0
+                getline y
+                $0 = x y
+        }
+}}
+{if ($0 ~ "^[;]? *\\\\."){
+        m = match ($0, "\\\\.")
+        c = substr($0, m+1, 1)
+        if (c ~ "[\\^$[(.*+?|]"){
+		while ($0 !~ "^[;]? *\\\\\\"c"([^\\"c"]|\\\\.)*\\"c) {######################
+			x = $0
+			getline y
+			$0 = x y
+		}
+	}
+	else{
+		while ($0 !~ "^[;]? *\\\\"c"([^"c"]|\\\\.)*"c) {######################
+                	x = $0
+                 	getline y
+                 	$0 = x y
+        	}
+	}
+}}
+{if ($0 ~ "^[;]? */"){
+	m = match($0, "^;")
+	a = substr($0, 1, m)
+	$0 = substr($0, m+1, length($0)-m)
+        while ($0 !~ "^ */.*/"){
+                x = $0
+                getline y
+                $0 = x y
+        }
+	$0 = a $0
+}}
+#{print "1" $0} ###############################################
+#Now we consider ", /.../" or ", \x...x" since these can have ;
+#Step 1 is to mark off the part that might go before the , by using a \v
+{if ($0 ~ "^[;]? *\f.*;"){
+	m = match($0, "\f")
+	a = substr($0, 1, m)
+	$0 = substr($0, m+1, length($0)-m)
+        m = match($0, ";")
+        x = substr($0, 1, m)
+        y = substr($0, m+1, length($0)-m)
+        n = match(y, "[^ ]")
+        temp = substr(y, 1, n-1)
+        z = substr(y, n, length(y)-n+1)
+        $0 = a x temp "\v" z
+}}
+{if ($0 ~ "^[;]? *\a.*\\\\"){
+        m = match($0, "\a")
+        a = substr($0, 1, m)
+        $0 = substr($0, m+1, length($0)-m)
+        m = match($0, "\\\\")
+        x = substr($0, 1, m)
+        y = substr($0, m+1, length($0)-m)
+        n = match(y, "[^ ]")
+        temp = substr(y, 1, n-1)
+        z = substr(y, n, length(y)-n+1)
+        $0 = a x temp "\v" z
+}}
+
+{if ($0 ~ "^[;]? *\\\\."){
+        m = match($0, "\\\\.")
+        c = substr($0, m+1, 1)
+	if (c ~ "[\\^$[(.*+?|]"){
+		if($0 ~ "^[;]? *\\\\\\"c"([^\\"c"]|\\\\.)*\\"c) { #######################
+			x = substr($0, 1, m+1)
+			y = substr($0, m+2, length($0)-m-1)
+			n = match(y, "[^\\\\]\\"c)
+			z = substr(y, n+2, length(y)-n-1)
+			y = substr(y, 1, n+1)
+			o = match(z, "[^ ]")
+			temp = substr(z, 1, o-1)
+			k = substr(z, o, length(z)-o+1)
+			$0 = x y temp "\v" k
+		}
+	}
+	else{
+        	if ($0 ~ "^[;]? *\\\\"c"([^"c"]|\\\\.)*"c) { #######################
+                	x = substr($0, 1, m+1)
+                	y = substr($0, m+2, length($0)-m-1)
+                	n = match(y, "[^\\\\]"c)
+	                z = substr(y, n+2, length(y)-n-1)
+        	        y = substr(y, 1, n+1)
+                	o = match(z, "[^ ]")
+	                temp = substr(z, 1, o-1)
+        	        k = substr(z, o, length(z)-o+1)
+                	$0 = x y temp "\v" k
+                	#print "x" x "end"
+                	#print "y" y "end"
+                	#print "z" z "end"
+                	#print "temp" temp "end"
+                	#print "k" k "end"
+                	#print "o" o
+        	}
+	}
+}}
+{if ($0 ~ "^[;]? */.*/"){
+        m = match($0, "/")
+        x = substr($0, 1, m)
+        y = substr($0, m+1, length($0)-m)
+        n = match(y, "[^/]/")
+        z = substr(y, n+2, length(y)-n-1)
+        y = substr(y, 1, n+1)
+        o = match(z, "[^ ]")
+        temp = substr(z, 1, o-1)
+        k = substr(z, o, length(z)-o+1)
+        $0 = x y temp "\v" k
+}}
+{if ($0 ~ "^[;]? *[0-9]+"){
+	m = match($0, "[0-9]")
+	a = substr($0, 1, m-1)
+	$0 = substr($0, m, length($0)-m+1)
+        m = match($0, "[^0-9]")
+        x = substr($0, 1, m-1)
+        y = substr($0, m, length($0)-m+1)
+        n = match(y, "[^ ]")
+        temp = substr(y, 1, n-1)
+        z = substr(y, n, length(y)-n+1)
+        $0 = a x temp "\v" z
+}}
+{if ($0 ~ "^[;]? *\\$[^-]"){
+        m = match($0, "\\$")
+        x = substr($0, 1, m)
+        y = substr($0, m+1, length($0)-m)
+        n = match(y, "[^ ]")
+        temp = substr(y, 1, n-1)
+        z = substr(y, n, length(y)-n+1)
+        $0 = x temp "\v" z
+}}
+{if ($0 ~ "^[;]? *\\$-"){
+	m = match($0, "\\$-")
+	x = substr($0, 1, m+1)
+	$0 = substr($0, m+2, length($0)-m-1)
+	m = match($0, "[^ 0-9]")
+	y = substr($0, 1, m-1)
+	z = substr($0, m, length($0)-m+1)
+	$0 = x y "\v" z
+}}
+
+{if ($0 ~ "\v, *\f"){
+        m = match($0, "\v")
+        a = substr($0, 1, m-1)
+        $0 = substr($0, m, length($0)-m+1)
+        while ($0 !~ "\v, *\f.*;") {
+                x = $0
+                getline y
+                $0 = x y
+        }
+        $0 = a $0
+}}
+{if ($0 ~ "\v, *\a"){
+        m = match($0, "\v")
+        a = substr($0, 1, m-1)
+        $0 = substr($0, m, length($0)-m+1)
+        while ($0 !~ "\v, *\a.*\\\\") {
+                x = $0
+                getline y
+                $0 = x y
+        }
+        $0 = a $0
+}}
+
+{if ($0 ~ "\v, *\\\\."){
+        m = match($0, "\v")
+        a = substr($0, 1, m-1)
+        $0 = substr($0, m, length($0)-m+1)
+        m = match($0, "\\\\.")
+        c = substr($0, m+1, 1)
+	if (c ~ "[\\^$[(.*+?|]"){
+		while ($0 !~ "\v, *\\\\\\"c"([^\\"c"]|\\\\.)*\\"c) { ###############
+		 	x = $0
+			getline y
+			$0 = x y
+		}
+	}
+        else{
+		while ($0 !~ "\v, *\\\\"c"([^"c"]|\\\\.)*"c) { ###############
+                 	x = $0
+                 	getline y
+                 	$0 = x y
+        	}
+	}
+        $0 = a $0
+}}
+{if ($0 ~ "\v, */"){
+        m = match($0, "\v")
+        a = substr($0, 1, m-1)
+        $0 = substr($0, m, length($0)-m+1)
+        #print "m" m
+        #print "temp" temp
+        #print "$0" $0
+        while ($0 !~ "\v, */([^/]|\\\\.)*/"){
+                x = $0
+                getline y
+                $0 = x y
+        }
+        $0 = a $0
+}}
+#{print "2" $0} ######################################################
+
+#Now put a \v after whatever predication may be given (including none)
+{if ($0 ~ "\v, *\f.*;"){
+        m = match($0, "\v")
+        x = substr($0, 1, m-1)
+        y = substr($0, m+1, length($0)-m)
+
+	m = match(y, ";")
+	p = substr(y, 1, m)
+	q = substr(y, m+1, length(y)-m)
+	n = match(q, "[^ ]")
+        a = substr(q, 1, n-1)
+        b = substr(q, n, length(q)-n+1)
+        $0 = x p a "\v" b
+}}
+{if ($0 ~ "\v, *\a.*\\\\"){
+        m = match($0, "\v")
+        x = substr($0, 1, m-1)
+        y = substr($0, m+1, length($0)-m)
+
+        m = match(y, "\\\\")
+        p = substr(y, 1, m)
+        q = substr(y, m+1, length(y)-m)
+        n = match(q, "[^ ]")
+        a = substr(q, 1, n-1)
+        b = substr(q, n, length(q)-n+1)
+        $0 = x p a "\v" b
+}}
+{if ($0 ~ "\v, *\\\\."){
+	m = match($0, "\v")
+	a = substr($0, 1, m-1)
+	b = substr($0, m+1, length($0)-m)
+	$0 = b
+        m = match($0, "\\\\.")
+        c = substr($0, m+1, 1)
+	if (c ~ "[\\^$[(.*+?|]"){
+		if ($0 ~ ", *\\\\\\"c"([^\\"c"]|\\\\.)*\\"c) { ######################
+                        x = substr($0, 1, m+1)
+                        y = substr($0, m+2, length($0)-m-1)
+                        n = match(y, "[^\\\\]\\"c)
+                        z = substr(y, n+2, length(y)-n-1)
+                        y = substr(y, 1, n+1)
+                        o = match(z, "[^ ]")
+                        temp = substr(z, 1, o-1)
+                        k = substr(z, o, length(z)-o+1)
+                        $0 = a x y temp "\v" k
+                }
+
+	}
+	else{
+        	if ($0 ~ ", *\\\\"c"([^"c"]|\\\\.)*"c) { ######################
+                	x = substr($0, 1, m+1)
+                	y = substr($0, m+2, length($0)-m-1)
+                	n = match(y, "[^\\\\]"c)
+                	z = substr(y, n+2, length(y)-n-1)
+	                y = substr(y, 1, n+1)
+        	        o = match(z, "[^ ]")
+                	temp = substr(z, 1, o-1)
+ 	               	k = substr(z, o, length(z)-o+1)
+        	        $0 = a x y temp "\v" k
+        	}
+	}
+}}
+{if ($0 ~ "\v, */.*/"){
+	m = match($0, "\v")
+	a = substr($0, 1, m-1)
+	b = substr($0, m+1, length($0)-m)
+	$0 = b
+        m = match($0, "/")
+        x = substr($0, 1, m)
+        y = substr($0, m+1, length($0)-m)
+        n = match(y, "[^/]/")
+        z = substr(y, n+2, length(y)-n-1)
+        y = substr(y, 1, n+1)
+        o = match(z, "[^ ]")
+        temp = substr(z, 1, o-1)
+        k = substr(z, o, length(z)-o+1)
+        $0 = a x y temp "\v" k
+}}
+{if ($0 ~ "\v, *[0-9][0-9]*"){
+	m = match($0, "\v")
+	a = substr($0, 1, m-1)
+	b = substr($0, m+1, length($0)-m)
+	$0 = b
+	m = match($0, "[0-9]")
+	b = substr($0, 1, m-1)
+	$0 = substr($0, m, length($0)-m+1)
+        m = match($0, "[^0-9]")
+        x = substr($0, 1, m-1)
+        y = substr($0, m, length($0)-m+1)
+        n = match(y, "[^ ]")
+        temp = substr(y, 1, n-1)
+        z = substr(y, n, length(y)-n+1)
+        $0 = a b x temp "\v" z
+}}
+{if ($0 ~ "\v, *\\$[^-]"){
+	m = match($0, "\v")
+	a = substr($0, 1, m-1)
+	b = substr($0, m+1, length($0)-m)
+	$0 = b
+        m = match($0, "\\$")
+        x = substr($0, 1, m)
+        y = substr($0, m+1, length($0)-m)
+        n = match(y, "[^ ]")
+        temp = substr(y, 1, n-1)
+        z = substr(y, n, length(y)-n+1)
+        $0 = a x temp "\v" z
+}}
+{if ($0 ~ "\v, *\\$-"){
+        m = match($0, "\v")
+        a = substr($0, 1, m-1)
+        b = substr($0, m+1, length($0)-m)
+        $0 = b
+        m = match($0, "\\$-")
+        x = substr($0, 1, m+1)
+        y = substr($0, m+2, length($0)-m-1)
+        n = match(y, "[^ 0-9]")
+        temp = substr(y, 1, n-1)
+        z = substr(y, n, length(y)-n+1)
+        $0 = a x temp "\v" z
+}}
+
+{if ($0 !~ "\v"){
+	if ($0 ~ "^;"){
+		temp = substr($0, 1, 1)
+		$0 = substr($0, 2, length($0)-1)
+	}
+	m = match($0, "[^ ]")
+	a = substr($0, 1, m-1)
+	b = substr($0, m, length($0)-m+1)
+	$0 = temp a "\v" b
+}}
+#{print "3" $0} ###############################################################
+
+#Now deal with y and s comands that might use ";"
+
+{if ($0 ~ "\v{?[sy]"){
+	m = match($0, "\v{?[sy]")
+	a = substr($0, 1, m-1)
+	b = substr($0, m, length($0)-m+1)
+	m = match(b, "[sy]")
+	p = substr(b, 1, m)
+	$0 = substr(b, m+1, length(b)-m)
+	if(length($0) == 0){
+		c = ";" #s;.;.;
+	}
+	else{
+		c = substr($0, 1, 1)
+	}
+	#print "c" c ##########################################################
+	if(c ~ "[\\\\\\^$[(.*+?|]"){
+		#print "in1" ##################################################
+		while ($0 !~ "\\"c"([^\\"c"]|\\\\.)*\\"c"([^\\"c"]|\\\\.)*\\"c) {
+                	x = $0
+                 	getline y
+                 	$0 = x y
+        	}
+	}
+	else{
+		#print "in2" ################################################
+		while ($0 !~ c"([^"c"]|\\\\.)*"c"([^"c"]|\\\\.)*"c){
+			x = $0
+			getline y
+			$0 = x y
+		}
+	}
+	$0 = a p $0
+}}
+#{print "4" $0} ######################################################
+#{sub("^;", "")}
+#{sub("\v", "")}
+
+
+#So now we have whole sed commands on lines. By I am adding a new part here:
+#If the line uses a "{",then put what comes after the { to the next line.
+#So "/x/{p"    =>  print("/x/{");$0="p"
+#So "1,/x/{"   =>  print("1,/x/{");$0=""
+#So "{="       =>  print("{");$0="="
+#So "s{x{y{g"  =>  No change.
+/{/{
+	if ($0 ~ "\v{"){
+		while($0 ~ "\v{"){
+			k = match($0, "\\$-[0-9]+")
+			if (k != 0){
+				x = substr($0, 1, k+1)
+				y = substr($0, k+2, length($0)-k-1)
+				$0 = x "\v" y
+			}
+			m = match($0, "\v{")
+			a = substr($0, 1, m-1)
+			b = substr($0, m+1, length($0)-m)
+			m = match(b, "{")
+			c = substr(b, 1, m)
+			d = substr(b, m+1, length(b)-m)
+			gsub("\a", "\\\\", a)
+			gsub("\a", "\\\\", c)
+			gsub("\f", "\\;", a)
+			gsub("\f", "\\;", c)
+			print a c
+			$0 = "\v" d
+		}
+	}
+}
+
+{sub("^;", "")}
+{sub("\v", "")}
+
+#Complete the lines below to handle the cases of Z, W, D, C, f, and F. This
+#time I require that you not break the hold space or flags that the user's
+#msed program is using. (That is: you saw how my solution on the last homework
+#had logic to keep your code from breaking the hold space or the flag state;
+#this homework must retain that.)
+
+#s,^W\(.*\),{x;s/.*/\&\\n\x1E/;x;H;s/\\n.*//;w\1\n;g;s/\\n\x1E.*//;x;s/.*\x1E\\n//},
+#s,^D,/\\n/!{s/.*/&\\n/};D,
+flag = 0
+/^[ZWDC]/{
+	print "TflagL1;x;s/$/\r\v/;x;:flagL1"
+	flag = 1
+}
+/^Z/{
+	sub("^Z", "s/[^\\n]*\\n\\{,1\\}//")
+}
+/^W/{
+	$0 = substr($0, 2, length($0)-1)
+	$0 = "{x;s/.*/&\\n\x1E/;x;H;s/\\n.*//;w" $0 "\n;g;s/\\n\x1E.*//;x;s/.*\x1E\\n//}"
+}
+/^D/{
+	sub("^D", "{/\\n/!s/$/\\n/;D;}")
+}
+/^C/{
+	$0 = substr($0, 2, length($0)-1)
+	$0 = "s/.*/" $0 "/"
+}
+
+/^f/{
+	sub("^f", "s/^//")
+}
+/^F/{
+	sub("^F", "tlabel7;:label7")
+}
+
+#These add an unusual symbol ("\v", which doesn't occur in the input) to mark
+#out the $-#, so that line 63 above can find them and convert them:
+{if ($0 ~ "^ *\\$-"){
+	m = match($0, "\\$-")
+	a = substr($0, 1, m+1)
+	b = substr($0, m+2, length($0)-m-1)
+	$0 = a "\v" b
+}}
+{if ($0 ~ ", *\\$-"){
+        m = match($0, "\\$-")
+        a = substr($0, 1, m+1)
+        b = substr($0, m+2, length($0)-m-1)
+        $0 = a "\v" b
+
+}}
+
+#These clean up the backquotes:
+{gsub("\f", "\\;")}
+{gsub("\a", "\\\\")}
+1
+{ if (flag == 1){
+        print "TflagL2;:flagL2;x;s/\r\v$//;x"
+}}
