@@ -1,0 +1,91 @@
+#!/usr/bin/csh
+cat > t4
+echo \ $1:q > t5
+
+#echo "The number of argument is " $#
+
+foreach i ( "`seq 2 1 $#`" )
+	# cat t5 | sed 's/\([^\\]\)\$$i/\1$argv[$i]/g > t6'
+	cat t5 | sed s/\\\(\[^\\\\\]\\\)\\\$$i/\\1$argv[$i]/g > t6
+	mv t6 t5
+
+	# remove arguments that have been processing into empty
+	if ( X$argv[$i] !~ X-* ) then
+		set argv[$i] = ''
+	endif
+
+	# echo $argv[$i]
+end
+
+# get rid of space;
+# \\ to \a
+# \; to \f
+#  ; to \n
+cat t5 | sed 's/^ //;s/\\\\/\a/g;s/\\;/\f/g;s/;/\n;/g' > t6
+
+sed -n '/^exit/{n;:a;p;n;ba}' < msed > t7
+cat t6 | sed -ft7 > t8
+
+rm -f t9
+@ cnt = 0
+@ z = 0
+
+foreach x ( "`cat t8`" )
+   #Here, x is a single line from t8, so it is usually a single sed command.
+   #Now we want to make a variable y that will be the number # of any $-# that
+   #might be on this line x. (Let y be "" otherwise.):
+   set y = `echo $x:q | sed -n 's/.*\$-\v\([0-9][0-9]*\).*/\1/p'`
+   #So now, what if $y==a number? Well that means that we need to work out
+   #what line number would match to $#-1? Set z to that line number:
+   if ( $y != "" ) @ z = `cat t4 | sed '$=;d'` - $y
+
+   #So now we take the single line $x and clean it up. The $-# will turn into
+   #the number $z. Also to fix: make the branches used for "f"/"F" unique, by
+   #adding a counter number to the end of whateven branch label may be in #x.
+   #(See footnote 4 of the README file, for details on handling "f"/"F".)
+   echo $x:q | sed 's/\$-\v'$y'/'$z'/g;s/tlabel7;:label7/tlabel7'$cnt';:label7'$cnt'/' >> t9
+
+   #Increase the counter used for the branch labels on line 63, above:
+   @ cnt = $cnt + 1
+end
+
+set argv[1] = -ft9
+
+cat t4 | sed  $*:q
+
+
+exit 0
+
+:rejoin_commands
+# s commands: need 3 delimiters like sXbodyXbodyXbody If not, join.
+/s\([^\;]\)/{/s\(.\)\(\([^\1]\|\\.\)*\)\1\(\([^\1]\|\\.\)*\)\1\(\([^\1]\|\\.\)*\)/!{$!N;s/\n//;b rejoin_commands}}
+/s\(.\).*\1.*\1/{b end}
+/s/{/s\(.\)\(\([^\;]\|\\.\)*\)\1\(\([^\;]\|\\.\)*\)\1\(\([^\;]\|\\.\)*\)/!{$!N;s/\n//;b rejoin_commands}}
+# y commands: similar to s commands.
+/y\([^\;]\)/{/y\(.\)\(\([^\1]\|\\.\)*\)\1\(\([^\1]\|\\.\)*\)\1\(\([^\1]\|\\.\)*\)/!{$!N;s/\n//;b rejoin_commands}}
+/y\(.\).*\1.*\1/{b end}
+/y/{/y\(.\)\(\([^\;]\|\\.\)*\)\1\(\([^\;]\|\\.\)*\)\1\(\([^\;]\|\\.\)*\)/!{$!N;s/\n//;b rejoin_commands}}
+# \ commands: need 1 delimiter like \XbodyX. If not, join.
+/^[\;]\{,1\}\f/{/\f.*\;/!{$!N;s/\n//;b rejoin_commands;}}
+/^[\;]\{,1\}\f.*\;/{b end}
+/\\\(.\)/{/\\\(.\)\(\([^\1]\|\\.\)*\)\1/!{$!N;s/\n//;b rejoin_commands}}
+# / commands (addresses or patterns like /regexp/): need 1 closing delimiter like /body/. If not, join.
+# This should come after s,y,\ to avoid conflicts, assuming they are more specific.
+/\//{/\/\(\([^\/]\|\\.\)*\)\//!{$!N;s/\n//;b rejoin_commands}}
+# (Empty line or further specific rejoin logic if needed, or a final branch/label)
+:end
+s/^;//
+
+s,^Z,s/[^\\n]*\\n\\{\,1\\}//,
+s,^C\(.*\),s/.*/\1/,
+s,^W\(.*\),{x;s/.*/\&\\n\x1E/;x;H;s/\\n.*//;w\1\n;g;s/\\n\x1E.*//;x;s/.*\x1E\\n//},
+s,^D,/\\n/!{s/.*/&\\n/};D,
+s,^f,s/.*/\&/,
+
+s_^F_tlabel7;:label7_
+
+s_^\$-_&\v_
+s_, *\$-_&\v_
+
+s_\f_\\;_g
+s_\a_\\\\_g
